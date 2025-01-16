@@ -1,38 +1,33 @@
 const std = @import("std");
 const time = std.time;
-const posix = std.posix;
 const builtin = @import("builtin");
-const Term = @cImport({
-    @cInclude("sys/ioctl.h");
-    @cInclude("signal.h");
-});
+
+// Import platform-specific code
+const platform = if (builtin.target.os.tag == .windows)
+    @import("platform/windows.zig")
+else
+    @import("platform/posix.zig");
+
+const common = @import("platform/common.zig");
+const TerminalSize = common.TerminalSize;
 
 const stdout = std.io.getStdOut().writer();
+var buffered = std.io.bufferedWriter(stdout);
+const writer = buffered.writer();
 
-const TerminalSize = struct {
-    rows: usize,
-    cols: usize,
-};
+var global_state: ?*State = null;
 
 const State = struct {
     size: TerminalSize,
     characters: []const u8 = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
     prng: std.rand.Xoshiro256,
-    last_frame: i128,
-    frame_time_ns: i128,
-
+    resize_needed: bool = false,
     map: []u8,
-
     allocator: std.mem.Allocator,
-
-    const target_fps = 15;
 
     pub fn init(allocator: std.mem.Allocator) !State {
         const seed: u64 = @intCast(std.time.timestamp());
         const prng = std.rand.DefaultPrng.init(seed);
-
-        const frame_time_ns = time.ns_per_s / target_fps;
-        const last_frame = time.nanoTimestamp();
 
         const size = try getTerminalSize();
 
@@ -44,9 +39,8 @@ const State = struct {
         return State{
             .size = size,
             .prng = prng,
-            .last_frame = last_frame,
-            .frame_time_ns = frame_time_ns,
             .map = map,
+            .resize_needed = false,
             .allocator = allocator,
         };
     }
@@ -102,34 +96,40 @@ const State = struct {
 
     pub fn drawMap(self: *State) !void {
         // Save cursor position and attributes
-        try stdout.writeAll("\x1b[s");
-
-        // Position cursor at start without clearing
-        try stdout.writeAll("\x1b[H");
+        try writer.writeAll("\x1b[s");
+        try writer.writeAll("\x1b[H");
+        try buffered.flush();
 
         for (self.map, 0..) |cell, i| {
             if (i % self.size.cols == 0 and i != 0) {
-                try stdout.writeAll("\n");
+                try writer.writeAll("\n");
             }
             const row = i / self.size.cols;
-            if (row == self.size.rows - 1) { // Check last row first
-                try stdout.print("\x1b[91m{c}", .{cell});
+            if (row == self.size.rows - 1) {
+                try writer.writeAll("\x1b[91m");
+                try writer.writeByte(cell);
             } else if (cell != ' ') {
-                try stdout.print("\x1b[92m{c}", .{cell});
+                try writer.writeAll("\x1b[92m");
+                try writer.writeByte(cell);
             } else {
-                try stdout.print("\x1b[0m{c}", .{cell});
+                try writer.writeAll("\x1b[0m");
+                try writer.writeByte(cell);
             }
         }
 
         // Restore cursor position and attributes
-        try stdout.writeAll("\x1b[u");
+        try writer.writeAll("\x1b[u");
+        try buffered.flush();
     }
 
     pub fn updateTerminalSize(self: *State) !void {
+        if (!self.resize_needed) return;
+
         const newSize = try getTerminalSize();
         if (newSize.rows != self.size.rows or newSize.cols != self.size.cols) {
             try self.resize(newSize);
         }
+        self.resize_needed = false;
     }
 
     pub fn resize(self: *State, newSize: TerminalSize) !void {
@@ -149,18 +149,7 @@ const State = struct {
 };
 
 fn getTerminalSize() !TerminalSize {
-    if (comptime builtin.target.os.tag == .windows) {
-        return error.WindowsNotSupported;
-    }
-
-    var wsz: Term.winsize = undefined;
-    if (Term.ioctl(posix.STDOUT_FILENO, Term.TIOCGWINSZ, &wsz) != 0) {
-        return error.IoctlError;
-    }
-    const rows = wsz.ws_row;
-    const cols = wsz.ws_col;
-
-    return TerminalSize{ .rows = rows, .cols = cols };
+    return platform.getTerminalSize();
 }
 
 fn clearScreen() !void {
@@ -169,24 +158,33 @@ fn clearScreen() !void {
 }
 
 fn setupSignalHandler() void {
-    if (comptime builtin.target.os.tag == .macos) {
-        const sa = Term.struct_sigaction{
-            .__sigaction_u = .{ .__sa_handler = handleSignal },
-            .sa_flags = 0,
-            .sa_mask = 0,
-        };
-        _ = Term.sigaction(Term.SIGINT, &sa, null);
+    if (comptime builtin.target.os.tag == .windows) {
+        platform.setupSignalHandler(handleSignalWindows);
+    } else {
+        platform.setupSignalHandler(handleSignal);
     }
-    // will add Linux and Windows handling later
 }
 
 export fn handleSignal(sig: c_int) callconv(.C) void {
-    if (sig == Term.SIGINT) {
+    if (sig == platform.Term.SIGINT) {
         // Show cursor before exit
         stdout.writeAll("\x1b[?25h") catch {}; // show cursor
         stdout.writeAll("\x1b[2J\x1b[H") catch {}; // clear screen
         std.process.exit(0);
+    } else if (sig == platform.Term.SIGWINCH) {
+        if (global_state) |state| {
+            state.resize_needed = true;
+        }
     }
+}
+
+fn handleSignalWindows(ctrlType: platform.Term.DWORD) callconv(platform.Term.WINAPI) platform.Term.BOOL {
+    if (ctrlType == platform.Term.CTRL_C_EVENT) {
+        stdout.writeAll("\x1b[?25h") catch {}; // show cursor
+        stdout.writeAll("\x1b[2J\x1b[H") catch {}; // clear screen
+        std.process.exit(0);
+    }
+    return 0;
 }
 
 pub fn main() !void {
@@ -202,14 +200,19 @@ pub fn main() !void {
     // Setup signal handler
     setupSignalHandler();
 
+    if (comptime builtin.target.os.tag == .windows) {
+        platform.enableAnsiEscapes();
+    }
+
     var state = try State.init(allocator);
     defer state.deinit();
+    global_state = &state;
 
     while (true) {
         try state.updateTerminalSize();
 
         try state.updateMap();
         try state.drawMap();
-        time.sleep(50 * time.ns_per_ms);
+        time.sleep(20 * time.ns_per_ms);
     }
 }
