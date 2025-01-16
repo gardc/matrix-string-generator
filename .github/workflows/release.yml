@@ -17,7 +17,6 @@ jobs:
 
       - name: Build All Targets
         run: |
-          # Array of targets to build
           targets=(
             "x86_64-windows"
             "aarch64-windows"
@@ -30,24 +29,15 @@ jobs:
           for target in "${targets[@]}"; do
             echo "Building for $target..."
             zig build -Dtarget=$target -Doptimize=ReleaseFast
-
+            
+            # Parse OS from target for .exe extension
+            os=$(echo $target | cut -d'-' -f2)
+            
+            # List contents of bin directory
             ls zig-out/bin
             
-            # Parse OS and arch from target
-            os=$(echo $target | cut -d'-' -f2)
-            arch=$(echo $target | cut -d'-' -f1)
-            
-            # Prepare binary name
-            BINARY_NAME="matrix-string-generator-${os}-${arch}"
-            if [ "$os" = "windows" ]; then
-              BINARY_NAME="${BINARY_NAME}.exe"
-              find zig-out/bin -name "matrix-string-generator*.exe" -exec cp {} "${BINARY_NAME}" \;
-            else
-              find zig-out/bin -name "matrix-string-generator" -exec cp {} "${BINARY_NAME}" \;
-            fi
-            
-            # Create checksum
-            sha256sum "${BINARY_NAME}" > "${BINARY_NAME}.sha256"
+            # Copy all files (binaries and debug symbols if present)
+            cp zig-out/bin/* ./
             
             # Clean zig-out to prepare for next build
             rm -rf zig-out/

@@ -15,8 +15,14 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
+    // Create the exe name with target info
+    const exe_name = b.fmt("msg-{s}-{s}", .{
+        @tagName(target.result.os.tag),
+        @tagName(target.result.cpu.arch),
+    });
+
     const exe = b.addExecutable(.{
-        .name = "matrix-string-generator",
+        .name = exe_name,
         .root_source_file = b.path("src/main.zig"),
         .target = target,
         .optimize = optimize,
