@@ -33,14 +33,13 @@ jobs:
             # Parse OS from target for .exe extension
             os=$(echo $target | cut -d'-' -f2)
             
-            # List contents of bin directory
-            ls zig-out/bin
-            
             # Copy all files (binaries and debug symbols if present)
             cp zig-out/bin/* ./
             
             # Clean zig-out to prepare for next build
             rm -rf zig-out/
+
+            ls -la
           done
 
       - name: Upload Artifacts
