@@ -2,7 +2,7 @@
 
 written in Zig btw
 
-![demo](matrix-string-generator-preview.webm)
+![demo](./matrix-string-generator-preview.gif)
 
 ## Support
 
