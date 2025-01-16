@@ -1,7 +1,13 @@
 name: Build and Release
 
 on:
+  push:
+    branches: [ main ]
   workflow_dispatch:
+
+# Add permissions at workflow level
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -30,16 +36,14 @@ jobs:
             echo "Building for $target..."
             zig build -Dtarget=$target -Doptimize=ReleaseFast
             
-            # Parse OS from target for .exe extension
-            os=$(echo $target | cut -d'-' -f2)
+            # List contents of bin directory
+            ls zig-out/bin
             
             # Copy all files (binaries and debug symbols if present)
             cp zig-out/bin/* ./
             
             # Clean zig-out to prepare for next build
             rm -rf zig-out/
-
-            ls -la
           done
 
       - name: Upload Artifacts
