@@ -168,8 +168,8 @@ fn setupSignalHandler() void {
 export fn handleSignal(sig: c_int) callconv(.C) void {
     if (sig == platform.Term.SIGINT) {
         // Show cursor before exit
-        stdout.writeAll("\x1b[?25h") catch {}; // show cursor
         stdout.writeAll("\x1b[2J\x1b[H") catch {}; // clear screen
+        stdout.writeAll("\x1b[?25h") catch {}; // show cursor
         std.process.exit(0);
     } else if (sig == platform.Term.SIGWINCH) {
         if (global_state) |state| {
@@ -213,6 +213,6 @@ pub fn main() !void {
 
         try state.updateMap();
         try state.drawMap();
-        time.sleep(33 * time.ns_per_ms);
+        time.sleep(20 * time.ns_per_ms);
     }
 }
