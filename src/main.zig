@@ -122,7 +122,7 @@ const State = struct {
         try buffered.flush();
     }
 
-    pub fn updateTerminalSize(self: *State) !void {
+    pub inline fn updateTerminalSize(self: *State) !void {
         if (!self.resize_needed) return;
 
         const newSize = try getTerminalSize();
@@ -213,6 +213,6 @@ pub fn main() !void {
 
         try state.updateMap();
         try state.drawMap();
-        time.sleep(20 * time.ns_per_ms);
+        time.sleep(33 * time.ns_per_ms);
     }
 }
