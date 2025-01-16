@@ -2,8 +2,8 @@
 
 written in Zig btw
 
-![demo](./matrix-string-generator-preview.gif)
+![demo mac](./mac-demo.gif)
 
-## Support
+![demo linux](./linux-demo.gif)
 
-Only macOS is supported for now.
+![demo windows](./windows-demo.gif)

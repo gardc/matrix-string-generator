@@ -22,6 +22,14 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    exe.linkLibC();
+
+    // Add Windows specific linkage when targeting Windows
+    if (target.result.os.tag == .windows) {
+        exe.linkSystemLibrary("kernel32");
+        exe.linkSystemLibrary("user32");
+    }
+
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
     // step when running `zig build`).

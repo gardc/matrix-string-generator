@@ -11,23 +11,23 @@ else
 const common = @import("platform/common.zig");
 const TerminalSize = common.TerminalSize;
 
-const stdout = std.io.getStdOut().writer();
-var buffered = std.io.bufferedWriter(stdout);
-const writer = buffered.writer();
+var stdout: std.fs.File.Writer = undefined;
+var buffered: std.io.BufferedWriter(4096, std.fs.File.Writer) = undefined;
+var writer: @TypeOf(buffered).Writer = undefined;
 
 var global_state: ?*State = null;
 
 const State = struct {
     size: TerminalSize,
     characters: []const u8 = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789",
-    prng: std.rand.Xoshiro256,
+    prng: std.Random.Xoshiro256,
     resize_needed: bool = false,
     map: []u8,
     allocator: std.mem.Allocator,
 
     pub fn init(allocator: std.mem.Allocator) !State {
         const seed: u64 = @intCast(std.time.timestamp());
-        const prng = std.rand.DefaultPrng.init(seed);
+        const prng = std.Random.DefaultPrng.init(seed);
 
         const size = try getTerminalSize();
 
@@ -47,14 +47,6 @@ const State = struct {
 
     pub fn deinit(self: *State) void {
         self.allocator.free(self.map);
-    }
-
-    fn xyToIndex(self: *State, row: usize, col: usize) usize {
-        return row * self.size.cols + col;
-    }
-
-    fn indexToXY(self: *State, index: usize) struct { row: usize, col: usize } {
-        return .{ .row = index / self.size.cols, .col = index % self.size.cols };
     }
 
     pub fn updateMap(self: *State) !void {
@@ -123,13 +115,25 @@ const State = struct {
     }
 
     pub inline fn updateTerminalSize(self: *State) !void {
-        if (!self.resize_needed) return;
+        switch (builtin.target.os.tag) {
+            .windows => {
+                // windows doesn't support SIGWINCH, so we need to manually check if resize is needed
+                const newSize = try getTerminalSize();
+                if (newSize.rows != self.size.rows or newSize.cols != self.size.cols) {
+                    try self.resize(newSize);
+                }
+            },
+            else => {
+                // posix systems support SIGWINCH, so we only need to resize when the terminal is resized
+                if (!self.resize_needed) return;
 
-        const newSize = try getTerminalSize();
-        if (newSize.rows != self.size.rows or newSize.cols != self.size.cols) {
-            try self.resize(newSize);
+                const newSize = try getTerminalSize();
+                if (newSize.rows != self.size.rows or newSize.cols != self.size.cols) {
+                    try self.resize(newSize);
+                }
+                self.resize_needed = false;
+            },
         }
-        self.resize_needed = false;
     }
 
     pub fn resize(self: *State, newSize: TerminalSize) !void {
@@ -171,7 +175,7 @@ export fn handleSignal(sig: c_int) callconv(.C) void {
         stdout.writeAll("\x1b[2J\x1b[H") catch {}; // clear screen
         stdout.writeAll("\x1b[?25h") catch {}; // show cursor
         std.process.exit(0);
-    } else if (sig == platform.Term.SIGWINCH) {
+    } else if (builtin.target.os.tag != .windows and sig == platform.Term.SIGWINCH) {
         if (global_state) |state| {
             state.resize_needed = true;
         }
@@ -191,6 +195,12 @@ pub fn main() !void {
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
+
+    // setup stdout
+    const stdout_file = std.io.getStdOut();
+    stdout = stdout_file.writer();
+    buffered = std.io.bufferedWriter(stdout);
+    writer = buffered.writer();
 
     // Hide cursor
     try stdout.writeAll("\x1b[?25l");
