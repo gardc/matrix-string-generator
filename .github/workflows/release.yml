@@ -47,7 +47,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: binaries
-          path: matrix-string-generator-*
+          path: msg-*
 
   release:
     needs: build
