@@ -5,13 +5,8 @@ on:
 
 jobs:
   build:
-    name: Build (${{ matrix.os }}, ${{ matrix.arch }})
+    name: Build All Targets
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        os: [windows, linux, macos]
-        arch: [x86_64, aarch64]
-
     steps:
       - uses: actions/checkout@v4
 
@@ -20,28 +15,49 @@ jobs:
         with:
           version: 0.13.0
 
-      - name: Build Binary
+      - name: Build All Targets
         run: |
-          zig build -Dtarget=${{ matrix.arch }}-${{ matrix.os }} -Doptimize=ReleaseFast
+          # Array of targets to build
+          targets=(
+            "x86_64-windows"
+            "aarch64-windows"
+            "x86_64-linux"
+            "aarch64-linux"
+            "x86_64-macos"
+            "aarch64-macos"
+          )
           
-          # Prepare binary name
-          BINARY_NAME="matrix-string-generator-${{ matrix.os }}-${{ matrix.arch }}"
-          if [ "${{ matrix.os }}" = "windows" ]; then
-            BINARY_NAME="${BINARY_NAME}.exe"
-          fi
-          
-          # Copy binary to properly named file
-          cp zig-out/bin/matrix-string-generator* "${BINARY_NAME}"
-          
-          # Create checksum
-          sha256sum "${BINARY_NAME}" > "${BINARY_NAME}.sha256"
+          for target in "${targets[@]}"; do
+            echo "Building for $target..."
+            zig build -Dtarget=$target -Doptimize=ReleaseFast
+
+            ls zig-out/bin
+            
+            # Parse OS and arch from target
+            os=$(echo $target | cut -d'-' -f2)
+            arch=$(echo $target | cut -d'-' -f1)
+            
+            # Prepare binary name
+            BINARY_NAME="matrix-string-generator-${os}-${arch}"
+            if [ "$os" = "windows" ]; then
+              BINARY_NAME="${BINARY_NAME}.exe"
+              find zig-out/bin -name "matrix-string-generator*.exe" -exec cp {} "${BINARY_NAME}" \;
+            else
+              find zig-out/bin -name "matrix-string-generator" -exec cp {} "${BINARY_NAME}" \;
+            fi
+            
+            # Create checksum
+            sha256sum "${BINARY_NAME}" > "${BINARY_NAME}.sha256"
+            
+            # Clean zig-out to prepare for next build
+            rm -rf zig-out/
+          done
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: binary-${{ matrix.os }}-${{ matrix.arch }}
-          path: |
-            matrix-string-generator-${{ matrix.os }}-${{ matrix.arch }}*
+          name: binaries
+          path: matrix-string-generator-*
 
   release:
     needs: build
