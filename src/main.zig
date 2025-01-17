@@ -115,24 +115,21 @@ const State = struct {
     }
 
     pub inline fn updateTerminalSize(self: *State) !void {
-        switch (builtin.target.os.tag) {
-            .windows => {
-                // windows doesn't support SIGWINCH, so we need to manually check if resize is needed
-                const newSize = try getTerminalSize();
-                if (newSize.rows != self.size.rows or newSize.cols != self.size.cols) {
-                    try self.resize(newSize);
-                }
-            },
-            else => {
-                // posix systems support SIGWINCH, so we only need to resize when the terminal is resized
-                if (!self.resize_needed) return;
+        if (comptime builtin.target.os.tag == .windows) {
+            // windows doesn't support SIGWINCH, so we need to manually check if resize is needed
+            const newSize = try getTerminalSize();
+            if (newSize.rows != self.size.rows or newSize.cols != self.size.cols) {
+                try self.resize(newSize);
+            }
+        } else {
+            // posix systems support SIGWINCH, so we only need to resize when the terminal is resized
+            if (!self.resize_needed) return;
 
-                const newSize = try getTerminalSize();
-                if (newSize.rows != self.size.rows or newSize.cols != self.size.cols) {
-                    try self.resize(newSize);
-                }
-                self.resize_needed = false;
-            },
+            const newSize = try getTerminalSize();
+            if (newSize.rows != self.size.rows or newSize.cols != self.size.cols) {
+                try self.resize(newSize);
+            }
+            self.resize_needed = false;
         }
     }
 
@@ -165,17 +162,17 @@ fn setupSignalHandler() void {
     if (comptime builtin.target.os.tag == .windows) {
         platform.setupSignalHandler(handleSignalWindows);
     } else {
-        platform.setupSignalHandler(handleSignal);
+        platform.setupSignalHandler(handleSignalPosix);
     }
 }
 
-export fn handleSignal(sig: c_int) callconv(.C) void {
+export fn handleSignalPosix(sig: c_int) callconv(.C) void {
     if (sig == platform.Term.SIGINT) {
         // Show cursor before exit
         stdout.writeAll("\x1b[2J\x1b[H") catch {}; // clear screen
         stdout.writeAll("\x1b[?25h") catch {}; // show cursor
         std.process.exit(0);
-    } else if (builtin.target.os.tag != .windows and sig == platform.Term.SIGWINCH) {
+    } else if ((comptime builtin.target.os.tag != .windows) and sig == platform.Term.SIGWINCH) {
         if (global_state) |state| {
             state.resize_needed = true;
         }

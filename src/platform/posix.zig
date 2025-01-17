@@ -18,13 +18,13 @@ pub fn getTerminalSize() !common.TerminalSize {
 
 pub fn setupSignalHandler(handler: fn (c_int) callconv(.C) void) void {
     var sa: Term.struct_sigaction = undefined;
-    if (builtin.target.os.tag == .linux) {
+    if (comptime builtin.target.os.tag == .linux) {
         sa = Term.struct_sigaction{
             .__sa_handler = .{ .sa_handler = handler },
             .sa_flags = 0,
             .sa_mask = std.mem.zeroes(Term.struct___sigset_t),
         };
-    } else if (builtin.target.os.tag == .macos) {
+    } else if (comptime builtin.target.os.tag == .macos) {
         sa = Term.struct_sigaction{
             .__sigaction_u = .{ .__sa_handler = handler },
             .sa_flags = 0,
